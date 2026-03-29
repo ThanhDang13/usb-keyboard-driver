@@ -1,0 +1,1 @@
+savedcmd_/home/sakata/workspace/project/usb/usb_module.mod := printf '%s\n'   usb_module.o | awk '!x[$$0]++ { print("/home/sakata/workspace/project/usb/"$$0) }' > /home/sakata/workspace/project/usb/usb_module.mod

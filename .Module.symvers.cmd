@@ -1,0 +1,1 @@
+savedcmd_/home/sakata/workspace/project/usb/Module.symvers :=  scripts/mod/modpost -M -m -a      -o /home/sakata/workspace/project/usb/Module.symvers -T /home/sakata/workspace/project/usb/modules.order -i Module.symvers -e 
