@@ -150,6 +150,10 @@ deps_/home/sakata/workspace/project/usb/usb_module.o := \
   include/linux/ratelimit_types.h \
   include/linux/bits.h \
   include/vdso/bits.h \
+  include/linux/overflow.h \
+  include/linux/limits.h \
+  include/uapi/linux/limits.h \
+  include/vdso/limits.h \
   include/uapi/linux/param.h \
   arch/x86/include/generated/uapi/asm/param.h \
   include/asm-generic/param.h \
@@ -328,9 +332,6 @@ deps_/home/sakata/workspace/project/usb/usb_module.o := \
     $(wildcard include/config/PROVE_LOCKING) \
   include/linux/align.h \
   include/linux/array_size.h \
-  include/linux/limits.h \
-  include/uapi/linux/limits.h \
-  include/vdso/limits.h \
   include/linux/bitops.h \
   include/linux/typecheck.h \
   include/asm-generic/bitops/generic-non-atomic.h \
@@ -370,7 +371,6 @@ deps_/home/sakata/workspace/project/usb/usb_module.o := \
     $(wildcard include/config/BINARY_PRINTF) \
     $(wildcard include/config/FORTIFY_SOURCE) \
   include/linux/err.h \
-  include/linux/overflow.h \
   include/uapi/linux/string.h \
   include/linux/fortify-string.h \
     $(wildcard include/config/CC_HAS_KASAN_MEMINTRINSIC_PREFIX) \
