@@ -28,8 +28,10 @@ MODULE_PARM_DESC(debug, "Enable debug logging (0=off, 1=on)");
 
 /* ── Device IDs ─────────────────────────────────────────────────────────── */
 
-#define USB_KBD_VENDOR_ID  0x04d9
-#define USB_KBD_PRODUCT_ID 0x1603
+/*
+#define USB_KBD_VENDOR_ID  0x062a
+#define USB_KBD_PRODUCT_ID 0x4101
+*/
 
 /* ── HID LED bits (HID spec, Usage Page 0x08) ───────────────────────────── */
 #define HID_LED_NUMLOCK    BIT(0)
@@ -66,6 +68,8 @@ struct usb_kbd {
 
     enum test_state         state;
     int                     current_test_index;
+    struct usb_ctrlrequest *cr;
+    dma_addr_t              cr_dma;
 };
 
 /* ── Scancode → Linux keycode table (full mechanical keyboard) ──────────── */
@@ -359,7 +363,8 @@ static void usb_kbd_irq(struct urb *urb)
     usb_kbd_set_leds(kbd, new_leds);
 
 resubmit:
-    usb_submit_urb(urb, GFP_ATOMIC);
+    if (usb_submit_urb(urb, GFP_ATOMIC))
+        printk(KERN_ERR "usb_kbd: failed to resubmit IRQ URB\n");
 }
 
 /* ── input_dev event handler — receives EV_LED from input layer ─────────── */
@@ -393,10 +398,18 @@ static int usb_kbd_probe(struct usb_interface *iface,
     struct usb_endpoint_descriptor *ep_in  = NULL;
     struct usb_endpoint_descriptor *ep_out = NULL;
     struct usb_kbd               *kbd;
-    struct usb_ctrlrequest       *cr;
     int pipe, maxp, err, i;
 
     interface = iface->cur_altsetting;
+
+    usb_control_msg(dev,
+        usb_sndctrlpipe(dev, 0),
+        0x0B, /* SET_PROTOCOL */
+        USB_TYPE_CLASS | USB_RECIP_INTERFACE,
+        0, /* BOOT protocol */
+        interface->desc.bInterfaceNumber,
+        NULL, 0,
+        USB_CTRL_SET_TIMEOUT);
 
     for (i = 0; i < interface->desc.bNumEndpoints; i++) {
         struct usb_endpoint_descriptor *ep =
@@ -484,21 +497,24 @@ static int usb_kbd_probe(struct usb_interface *iface,
          * No interrupt OUT — use HID SET_REPORT control transfer.
          * Allocate a setup packet and embed it in the URB.
          */
-        cr = usb_alloc_coherent(dev, sizeof(*cr), GFP_ATOMIC,
-                                &kbd->led->setup_dma);
-        if (!cr) { err = -ENOMEM; goto err_unregister_input; }
+        kbd->cr = usb_alloc_coherent(dev, sizeof(*kbd->cr), GFP_ATOMIC,
+                             &kbd->cr_dma);
+        if (!kbd->cr) {
+            err = -ENOMEM;
+            goto err_unregister_input;
+        }
 
-        cr->bRequestType = USB_TYPE_CLASS | USB_RECIP_INTERFACE;
-        cr->bRequest     = 0x09; /* HID SET_REPORT */
-        cr->wValue       = cpu_to_le16(0x0200); /* Output report, ID 0 */
-        cr->wIndex       = cpu_to_le16(interface->desc.bInterfaceNumber);
-        cr->wLength      = cpu_to_le16(1);
+        kbd->cr->bRequestType = USB_TYPE_CLASS | USB_RECIP_INTERFACE;
+        kbd->cr->bRequest     = 0x09; /* HID SET_REPORT */
+        kbd->cr->wValue       = cpu_to_le16(0x0200); /* Output report, ID 0 */
+        kbd->cr->wIndex       = cpu_to_le16(interface->desc.bInterfaceNumber);
+        kbd->cr->wLength      = cpu_to_le16(1);
 
         usb_fill_control_urb(kbd->led, dev, usb_sndctrlpipe(dev, 0),
-                             (unsigned char *)cr, kbd->led_buf, 1,
+                             (unsigned char *)kbd->cr, kbd->led_buf, 1,
                              usb_kbd_led_complete, kbd);
+        kbd->led->setup_dma = kbd->cr_dma;
         kbd->led->transfer_dma   = kbd->led_dma;
-        kbd->led->setup_dma      = kbd->led->setup_dma;
         kbd->led->transfer_flags |= URB_NO_TRANSFER_DMA_MAP;
     }
 
@@ -512,7 +528,9 @@ static int usb_kbd_probe(struct usb_interface *iface,
     if (err) goto err_unregister_input;
 
     printk(KERN_INFO "usb_kbd: connected (VID=%04x PID=%04x) debug=%s\n",
-           USB_KBD_VENDOR_ID, USB_KBD_PRODUCT_ID, debug ? "on" : "off");
+       le16_to_cpu(dev->descriptor.idVendor),
+       le16_to_cpu(dev->descriptor.idProduct),
+       debug ? "on" : "off");
     return 0;
 
 err_unregister_input:
@@ -544,6 +562,9 @@ static void usb_kbd_disconnect(struct usb_interface *iface)
     if (!kbd)
         return;
 
+    if (kbd->cr)
+        usb_free_coherent(kbd->usbdev, sizeof(*kbd->cr), kbd->cr, kbd->cr_dma);
+
     usb_kill_urb(kbd->irq);
     usb_kill_urb(kbd->led);
     usb_free_urb(kbd->irq);
@@ -559,7 +580,13 @@ static void usb_kbd_disconnect(struct usb_interface *iface)
 /* ── USB driver registration ────────────────────────────────────────────── */
 
 static const struct usb_device_id usb_kbd_id_table[] = {
-    { USB_DEVICE(USB_KBD_VENDOR_ID, USB_KBD_PRODUCT_ID) },
+    {
+        USB_INTERFACE_INFO(
+            USB_CLASS_HID,  /* 0x03 */
+            1,              /* Boot Interface Subclass */
+            1               /* Keyboard */
+        )
+    },
     {}
 };
 MODULE_DEVICE_TABLE(usb, usb_kbd_id_table);
